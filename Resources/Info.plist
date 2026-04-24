@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>MacVibe</string>
+    <key>CFBundleDisplayName</key>
+    <string>MacVibe</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.libman.macvibe</string>
+    <key>CFBundleExecutable</key>
+    <string>MacVibe</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>MacVibe listens to your voice to transcribe dictation into text wherever you&#8217;re typing.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>MacVibe pastes transcribed text into the focused application.</string>
+</dict>
+</plist>

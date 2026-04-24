@@ -1,0 +1,23 @@
+[package]
+name = "macvibe-asr"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "macvibe-asr"
+path = "src/main.rs"
+
+[dependencies]
+# whisper.cpp bindings with Metal acceleration on Apple Silicon
+whisper-rs = { version = "0.13", default-features = false, features = ["metal"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hound = "3.5"
+anyhow = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
