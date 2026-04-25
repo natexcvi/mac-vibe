@@ -7,7 +7,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-INSTALL_DIR="${INSTALL_DIR:-${HOME}/Applications}"
+INSTALL_DIR="${INSTALL_DIR:-/Applications}"
 APP_NAME="MacVibe"
 DEST="${INSTALL_DIR}/${APP_NAME}.app"
 

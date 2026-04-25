@@ -21,7 +21,12 @@ use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextPar
 #[serde(tag = "cmd")]
 enum Request {
     #[serde(rename = "transcribe")]
-    Transcribe { id: String, audio_path: String },
+    Transcribe {
+        id: String,
+        audio_path: String,
+        #[serde(default)]
+        hotwords: Vec<String>,
+    },
     #[serde(rename = "shutdown")]
     Shutdown,
 }
@@ -195,7 +200,24 @@ fn load_audio_16k_mono(path: &str) -> Result<Vec<f32>> {
     Ok(resampled)
 }
 
-fn transcribe(ctx: &WhisperContext, audio_path: &str) -> Result<String> {
+fn build_initial_prompt(hotwords: &[String]) -> String {
+    if hotwords.is_empty() {
+        return String::new();
+    }
+    // Whisper's initial_prompt is a soft conditioning signal, not a hard
+    // vocab. Phrasing it as a glossary that the speaker is about to use
+    // works well in practice. Cap at ~600 chars to stay well under the
+    // 224-token prompt budget.
+    let joined = hotwords.join(", ");
+    let prompt = format!("Glossary of terms used in this dictation: {}.", joined);
+    if prompt.len() > 600 {
+        prompt.chars().take(600).collect()
+    } else {
+        prompt
+    }
+}
+
+fn transcribe(ctx: &WhisperContext, audio_path: &str, hotwords: &[String]) -> Result<String> {
     let started = Instant::now();
     let samples = load_audio_16k_mono(audio_path)?;
     log(format!(
@@ -217,6 +239,12 @@ fn transcribe(ctx: &WhisperContext, audio_path: &str) -> Result<String> {
     params.set_suppress_non_speech_tokens(true);
     params.set_no_context(true);
     params.set_single_segment(false);
+
+    let prompt = build_initial_prompt(hotwords);
+    if !prompt.is_empty() {
+        params.set_initial_prompt(&prompt);
+        log(format!("using glossary ({} terms): {}", hotwords.len(), prompt));
+    }
 
     state
         .full(params, &samples)
@@ -327,7 +355,7 @@ fn main() -> Result<()> {
                 log("shutdown requested");
                 break;
             }
-            Request::Transcribe { id, audio_path } => {
+            Request::Transcribe { id, audio_path, hotwords } => {
                 if !Path::new(&audio_path).exists() {
                     emit(&Event::Error {
                         id: &id,
@@ -335,7 +363,7 @@ fn main() -> Result<()> {
                     });
                     continue;
                 }
-                match transcribe(&ctx, &audio_path) {
+                match transcribe(&ctx, &audio_path, &hotwords) {
                     Ok(text) => emit(&Event::Transcription { id: &id, text: &text }),
                     Err(e) => {
                         log(format!("TRANSCRIBE FAILED: {e:?}"));

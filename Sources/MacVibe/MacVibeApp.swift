@@ -59,6 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refineToggle.tag = 1002
         menu.addItem(refineToggle)
         menu.addItem(NSMenuItem.separator())
+        menu.addItem(withTitle: "Edit Custom Words…", action: #selector(editCustomWords), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Open Accessibility Settings…", action: #selector(openAccessibility), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Open Microphone Settings…", action: #selector(openMicrophone), keyEquivalent: "").target = self
         menu.addItem(NSMenuItem.separator())
@@ -83,6 +84,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor @objc private func toggleRefinement(_ sender: NSMenuItem) {
         coordinator.refinementEnabled.toggle()
         sender.state = coordinator.refinementEnabled ? .on : .off
+    }
+
+    @MainActor @objc private func editCustomWords() {
+        Hotwords.openInEditor()
     }
 
     @objc private func openAccessibility() {

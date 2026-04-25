@@ -13,6 +13,9 @@ PythonSidecar/.venv/
 PythonSidecar/__pycache__/
 PythonSidecar/setup.log
 
+# Icon build artifacts (the .icns is committed; the iconset is intermediate).
+Resources/icon/AppIcon.iconset/
+
 *.xcodeproj/
 *.xcworkspace/
 .DS_Store

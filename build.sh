@@ -29,6 +29,16 @@ mkdir -p "${APP_DIR}/Contents/Resources"
 cp "${BIN_PATH}"           "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 cp Resources/Info.plist    "${APP_DIR}/Contents/Info.plist"
 
+# Bundle the app icon. Regenerate it if Resources/icon/generate_icon.py is
+# newer than the .icns (or the .icns is missing). Skips work in CI / quick
+# iteration when the source hasn't changed.
+if [[ ! -f Resources/AppIcon.icns ]] \
+        || [[ Resources/icon/generate_icon.py -nt Resources/AppIcon.icns ]]; then
+    echo "▸ regenerating AppIcon.icns"
+    python3 Resources/icon/generate_icon.py
+fi
+cp Resources/AppIcon.icns  "${APP_DIR}/Contents/Resources/AppIcon.icns"
+
 # Bundle the Rust ASR sidecar binary + setup script.
 mkdir -p "${APP_DIR}/Contents/Resources/asr-sidecar"
 cp RustSidecar/target/release/macvibe-asr "${APP_DIR}/Contents/Resources/asr-sidecar/"

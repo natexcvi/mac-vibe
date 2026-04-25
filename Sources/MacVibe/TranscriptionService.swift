@@ -198,11 +198,15 @@ final class TranscriptionService: @unchecked Sendable {
     func transcribe(audioURL: URL) async throws -> String {
         try await waitReady()
         let id = UUID().uuidString
-        let payload: [String: Any] = [
+        var payload: [String: Any] = [
             "cmd": "transcribe",
             "id": id,
             "audio_path": audioURL.path
         ]
+        let hotwords = Hotwords.current()
+        if !hotwords.isEmpty {
+            payload["hotwords"] = hotwords
+        }
         let data = try JSONSerialization.data(withJSONObject: payload)
 
         return try await withCheckedThrowingContinuation { cont in
