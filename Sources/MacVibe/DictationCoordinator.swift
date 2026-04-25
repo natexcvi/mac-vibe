@@ -92,9 +92,9 @@ final class DictationCoordinator {
             try? FileManager.default.removeItem(at: audioURL)
         }
 
-        let raw: String
+        let result: TranscriptionService.Result
         do {
-            raw = try await transcriber.transcribe(audioURL: audioURL)
+            result = try await transcriber.transcribe(audioURL: audioURL)
         } catch {
             popup.show(.error(error.localizedDescription))
             popup.autoHide(after: 4)
@@ -103,7 +103,7 @@ final class DictationCoordinator {
             return
         }
 
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             popup.show(.error("Nothing was heard"))
             popup.autoHide(after: 2)
@@ -127,12 +127,12 @@ final class DictationCoordinator {
             final = trimmed
         }
 
-        pasteAndShow(final)
+        pasteAndShow(final, detectedLanguage: result.detectedLanguage)
         state = .idle
         onStatusChange?("ready")
     }
 
-    private func pasteAndShow(_ text: String) {
+    private func pasteAndShow(_ text: String, detectedLanguage: String? = nil) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
@@ -158,11 +158,26 @@ final class DictationCoordinator {
 
         let pasted = synthesizeCommandV()
         if pasted {
-            popup.show(.done(text))
+            // If the user pinned a language and Whisper acoustically heard
+            // a different one, surface the disagreement — Whisper's language
+            // pin is a soft hint and it'll happily output a different language
+            // if the audio overrides. Without this warning the mismatch looks
+            // like an inexplicable bug to the user.
+            let pinned = Prefs.language
+            if pinned != "auto",
+               let detected = detectedLanguage,
+               detected != pinned {
+                NSLog("Coordinator: language mismatch — pinned=%@ detected=%@", pinned, detected)
+                popup.show(.doneWithLanguageWarning(text: text, detected: detected, pinned: pinned))
+                popup.autoHide(after: 4.0)
+            } else {
+                popup.show(.done(text))
+                popup.autoHide(after: 2.0)
+            }
         } else {
             popup.show(.error("Text copied — paste failed (Accessibility?)"))
+            popup.autoHide(after: 2.0)
         }
-        popup.autoHide(after: 2.0)
     }
 
     /// Synthesizes ⌘V to paste into the focused text field. Returns false only

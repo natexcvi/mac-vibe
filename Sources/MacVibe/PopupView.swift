@@ -42,6 +42,10 @@ struct PopupView: View {
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(.green)
                 .font(.system(size: 16, weight: .semibold))
+        case .doneWithLanguageWarning:
+            Image(systemName: "globe")
+                .foregroundStyle(.yellow)
+                .font(.system(size: 16, weight: .semibold))
         case .error:
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
@@ -78,6 +82,13 @@ struct PopupView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(text).font(.system(size: 13)).lineLimit(3).truncationMode(.tail)
                 Text("Pasted").font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+        case .doneWithLanguageWarning(let text, let detected, let pinned):
+            VStack(alignment: .leading, spacing: 2) {
+                Text(text).font(.system(size: 13)).lineLimit(3).truncationMode(.tail)
+                Text("Pasted — heard \(detected.uppercased()), pinned \(pinned.uppercased())")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
             }
         case .error(let message):
             VStack(alignment: .leading, spacing: 2) {

@@ -8,6 +8,9 @@ enum PopupState: Equatable {
     case transcribing
     case refining(String)
     case done(String)
+    /// Pasted, but the language Whisper acoustically detected disagrees with
+    /// what the user pinned in the menu — text is shown alongside the warning.
+    case doneWithLanguageWarning(text: String, detected: String, pinned: String)
     case error(String)
 }
 

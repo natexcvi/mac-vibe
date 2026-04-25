@@ -28,6 +28,13 @@ final class TranscriptionService: @unchecked Sendable {
         }
     }
 
+    struct Result {
+        let text: String
+        /// Whisper's acoustic guess at the language (separate probe, not the
+        /// pinned language). May be nil if detection failed.
+        let detectedLanguage: String?
+    }
+
     var onStatusChange: ((String) -> Void)?
 
     private var process: Process?
@@ -35,7 +42,7 @@ final class TranscriptionService: @unchecked Sendable {
     private var buffer = Data()
     private let queue = DispatchQueue(label: "com.libman.macvibe.transcription", qos: .userInitiated)
 
-    private var pending: [String: CheckedContinuation<String, Error>] = [:]
+    private var pending: [String: CheckedContinuation<Result, Error>] = [:]
     private var isReady = false
     private var readyWaiters: [CheckedContinuation<Void, Error>] = []
 
@@ -157,7 +164,8 @@ final class TranscriptionService: @unchecked Sendable {
             guard let id = obj["id"] as? String else { return }
             let cont = pending.removeValue(forKey: id)
             if let text = obj["text"] as? String {
-                cont?.resume(returning: text)
+                let detected = obj["detected_language"] as? String
+                cont?.resume(returning: Result(text: text, detectedLanguage: detected))
             } else {
                 cont?.resume(throwing: ServiceError.sidecarFailed("missing text"))
             }
@@ -195,7 +203,7 @@ final class TranscriptionService: @unchecked Sendable {
         }
     }
 
-    func transcribe(audioURL: URL) async throws -> String {
+    func transcribe(audioURL: URL) async throws -> Result {
         try await waitReady()
         let id = UUID().uuidString
         var payload: [String: Any] = [

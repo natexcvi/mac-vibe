@@ -47,7 +47,16 @@ enum Event<'a> {
         error: Option<&'a str>,
     },
     #[serde(rename = "transcription")]
-    Transcription { id: &'a str, text: &'a str },
+    Transcription {
+        id: &'a str,
+        text: &'a str,
+        /// Whisper's *acoustic* language guess from `lang_detect` (a separate
+        /// probe over the audio). NOT the same as the language we passed in
+        /// — when the user pins a language, that pin is a soft hint that
+        /// whisper happily ignores if the audio doesn't match.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        detected_language: Option<&'a str>,
+    },
     #[serde(rename = "error")]
     Error { id: &'a str, error: &'a str },
 }
@@ -221,12 +230,17 @@ fn build_initial_prompt(hotwords: &[String]) -> String {
     }
 }
 
+struct TranscribeOutput {
+    text: String,
+    detected_language: Option<String>,
+}
+
 fn transcribe(
     ctx: &WhisperContext,
     audio_path: &str,
     hotwords: &[String],
     language: Option<&str>,
-) -> Result<String> {
+) -> Result<TranscribeOutput> {
     let started = Instant::now();
     let samples = load_audio_16k_mono(audio_path)?;
     log(format!(
@@ -270,13 +284,24 @@ fn transcribe(
         .full(params, &samples)
         .map_err(|e| anyhow!("whisper full() failed: {:?}", e))?;
 
-    // Surface what Whisper actually decoded with — "auto" only matters if we
-    // can see the result in the logs.
-    if let Ok(lang_id) = state.full_lang_id_from_state() {
-        if let Some(code) = whisper_rs::get_lang_str(lang_id) {
-            log(format!("decoded as language: {}", code));
+    // Probe the *acoustic* language separately. `full_lang_id_from_state`
+    // would just echo whatever we pinned, which is misleading — what we
+    // actually want to know is what whisper hears in the audio so we can
+    // tell the user if their pin disagrees with reality.
+    let n_threads = num_cpus().min(8);
+    let detected_language = match state.lang_detect(0, n_threads) {
+        Ok((id, _probs)) => {
+            let code = whisper_rs::get_lang_str(id).map(String::from);
+            if let Some(c) = &code {
+                log(format!("acoustic language guess: {}", c));
+            }
+            code
         }
-    }
+        Err(e) => {
+            log(format!("lang_detect failed: {:?}", e));
+            None
+        }
+    };
 
     let n = state
         .full_n_segments()
@@ -294,7 +319,10 @@ fn transcribe(
         started.elapsed().as_secs_f32(),
         text.chars().take(80).collect::<String>()
     ));
-    Ok(text.trim().to_string())
+    Ok(TranscribeOutput {
+        text: text.trim().to_string(),
+        detected_language,
+    })
 }
 
 fn num_cpus() -> usize {
@@ -392,7 +420,11 @@ fn main() -> Result<()> {
                     continue;
                 }
                 match transcribe(&ctx, &audio_path, &hotwords, language.as_deref()) {
-                    Ok(text) => emit(&Event::Transcription { id: &id, text: &text }),
+                    Ok(out) => emit(&Event::Transcription {
+                        id: &id,
+                        text: &out.text,
+                        detected_language: out.detected_language.as_deref(),
+                    }),
                     Err(e) => {
                         log(format!("TRANSCRIBE FAILED: {e:?}"));
                         emit(&Event::Error {
