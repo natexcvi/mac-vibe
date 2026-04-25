@@ -58,6 +58,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refineToggle.target = self
         refineToggle.tag = 1002
         menu.addItem(refineToggle)
+
+        let langParent = NSMenuItem(title: "Language", action: nil, keyEquivalent: "")
+        langParent.submenu = makeLanguageMenu()
+        menu.addItem(langParent)
+
         menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Edit Custom Words…", action: #selector(editCustomWords), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Open Accessibility Settings…", action: #selector(openAccessibility), keyEquivalent: "").target = self
@@ -88,6 +93,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor @objc private func editCustomWords() {
         Hotwords.openInEditor()
+    }
+
+    private func makeLanguageMenu() -> NSMenu {
+        let menu = NSMenu()
+        let current = Prefs.language
+        for option in Prefs.supportedLanguages {
+            let item = NSMenuItem(
+                title: option.label,
+                action: #selector(selectLanguage(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = option.code
+            item.state = (option.code == current) ? .on : .off
+            menu.addItem(item)
+            if option.code == "auto" {
+                menu.addItem(NSMenuItem.separator())
+            }
+        }
+        return menu
+    }
+
+    @MainActor @objc private func selectLanguage(_ sender: NSMenuItem) {
+        guard let code = sender.representedObject as? String else { return }
+        Prefs.language = code
+        // Refresh checkmarks across the submenu.
+        if let parent = sender.menu {
+            for item in parent.items {
+                item.state = (item.representedObject as? String == code) ? .on : .off
+            }
+        }
     }
 
     @objc private func openAccessibility() {

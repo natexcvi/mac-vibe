@@ -26,6 +26,10 @@ enum Request {
         audio_path: String,
         #[serde(default)]
         hotwords: Vec<String>,
+        /// "auto" or a Whisper language code (e.g. "en", "es"). Missing/empty
+        /// is treated the same as "auto".
+        #[serde(default)]
+        language: Option<String>,
     },
     #[serde(rename = "shutdown")]
     Shutdown,
@@ -217,7 +221,12 @@ fn build_initial_prompt(hotwords: &[String]) -> String {
     }
 }
 
-fn transcribe(ctx: &WhisperContext, audio_path: &str, hotwords: &[String]) -> Result<String> {
+fn transcribe(
+    ctx: &WhisperContext,
+    audio_path: &str,
+    hotwords: &[String],
+    language: Option<&str>,
+) -> Result<String> {
     let started = Instant::now();
     let samples = load_audio_16k_mono(audio_path)?;
     log(format!(
@@ -230,7 +239,18 @@ fn transcribe(ctx: &WhisperContext, audio_path: &str, hotwords: &[String]) -> Re
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
     params.set_n_threads(num_cpus().min(8) as i32);
     params.set_translate(false);
-    params.set_language(Some("en"));
+
+    // Language: "auto" / empty / missing → let Whisper detect. Any other
+    // value is passed through as a language code (e.g. "en", "es", "ja").
+    let want_auto = matches!(language, None | Some("") | Some("auto"));
+    if want_auto {
+        params.set_language(None);
+        log("language: auto-detect");
+    } else if let Some(lang) = language {
+        params.set_language(Some(lang));
+        log(format!("language: pinned to {}", lang));
+    }
+
     params.set_print_special(false);
     params.set_print_progress(false);
     params.set_print_realtime(false);
@@ -249,6 +269,14 @@ fn transcribe(ctx: &WhisperContext, audio_path: &str, hotwords: &[String]) -> Re
     state
         .full(params, &samples)
         .map_err(|e| anyhow!("whisper full() failed: {:?}", e))?;
+
+    // Surface what Whisper actually decoded with — "auto" only matters if we
+    // can see the result in the logs.
+    if let Ok(lang_id) = state.full_lang_id_from_state() {
+        if let Some(code) = whisper_rs::get_lang_str(lang_id) {
+            log(format!("decoded as language: {}", code));
+        }
+    }
 
     let n = state
         .full_n_segments()
@@ -355,7 +383,7 @@ fn main() -> Result<()> {
                 log("shutdown requested");
                 break;
             }
-            Request::Transcribe { id, audio_path, hotwords } => {
+            Request::Transcribe { id, audio_path, hotwords, language } => {
                 if !Path::new(&audio_path).exists() {
                     emit(&Event::Error {
                         id: &id,
@@ -363,7 +391,7 @@ fn main() -> Result<()> {
                     });
                     continue;
                 }
-                match transcribe(&ctx, &audio_path, &hotwords) {
+                match transcribe(&ctx, &audio_path, &hotwords, language.as_deref()) {
                     Ok(text) => emit(&Event::Transcription { id: &id, text: &text }),
                     Err(e) => {
                         log(format!("TRANSCRIBE FAILED: {e:?}"));

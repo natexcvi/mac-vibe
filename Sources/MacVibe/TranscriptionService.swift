@@ -207,6 +207,9 @@ final class TranscriptionService: @unchecked Sendable {
         if !hotwords.isEmpty {
             payload["hotwords"] = hotwords
         }
+        // Always include language; "auto" tells the sidecar to let Whisper
+        // detect on a per-utterance basis.
+        payload["language"] = Prefs.language
         let data = try JSONSerialization.data(withJSONObject: payload)
 
         return try await withCheckedThrowingContinuation { cont in
