@@ -25,6 +25,10 @@ struct PopupView: View {
 
     @ViewBuilder private var indicator: some View {
         switch viewModel.state {
+        case .downloadingModel:
+            Image(systemName: "arrow.down.circle")
+                .foregroundStyle(.blue)
+                .font(.system(size: 16, weight: .semibold))
         case .recording:
             Circle()
                 .fill(Color.red)
@@ -57,6 +61,14 @@ struct PopupView: View {
 
     @ViewBuilder private var content: some View {
         switch viewModel.state {
+        case .downloadingModel(let fraction):
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Setting up MacVibe…").font(.system(size: 14, weight: .semibold))
+                ProgressView(value: fraction).progressViewStyle(.linear)
+                Text("Downloading speech model — \(Int(fraction * 100))% of 1.6 GB")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
         case .recording:
             VStack(alignment: .leading, spacing: 2) {
                 Text("Listening…").font(.system(size: 14, weight: .semibold))

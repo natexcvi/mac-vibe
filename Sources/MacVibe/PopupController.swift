@@ -4,6 +4,8 @@ import Combine
 
 enum PopupState: Equatable {
     case hidden
+    /// First launch: fetching the whisper weights. `fraction` is 0…1.
+    case downloadingModel(fraction: Double)
     case recording
     case transcribing
     case refining(String)

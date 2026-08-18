@@ -12,6 +12,17 @@ final class DictationCoordinator {
     }
 
     private var state: RuntimeState = .idle
+    /// Dictation is unavailable until the whisper weights are on disk — on a
+    /// fresh install that means a ~1.6 GB download.
+    private var modelReady = false
+    private var setupProgress: Double = 0
+    private var downloadStarted = false
+    private var setupFailure: String?
+    /// Whether the HUD is currently dedicated to download progress. The panel
+    /// floats above everything, so we show it briefly and then fall back to
+    /// the menubar status rather than parking it on screen for the whole
+    /// download.
+    private var downloadPopupVisible = false
     private let recorder = AudioRecorder()
     private let transcriber = TranscriptionService()
     private let refiner = RefinementService()
@@ -27,7 +38,6 @@ final class DictationCoordinator {
         transcriber.onStatusChange = { [weak self] text in
             self?.onStatusChange?(text)
         }
-        transcriber.launch()
 
         Task { [weak self] in
             _ = await self?.recorder.requestPermission()
@@ -41,10 +51,89 @@ final class DictationCoordinator {
         }
         hotkey.start()
 
-        onStatusChange?("ready — tap right ⌥")
+        Task { [weak self] in
+            await self?.prepareModel()
+        }
+    }
+
+    /// Resolves the speech model — downloading it on first launch — and only
+    /// then starts the sidecar. Runs once at startup.
+    private func prepareModel() async {
+        onStatusChange?("checking speech model…")
+        do {
+            let modelURL = try await ModelManager.ensureAvailable { [weak self] fraction in
+                Task { @MainActor [weak self] in
+                    self?.reportDownloadProgress(fraction)
+                }
+            }
+            modelReady = true
+            setupFailure = nil
+            if downloadPopupVisible {
+                popup.hide()
+                downloadPopupVisible = false
+            }
+            transcriber.launch(modelPath: modelURL)
+            onStatusChange?("ready — tap right ⌥")
+        } catch {
+            let message = error.localizedDescription
+            setupFailure = message
+            NSLog("Coordinator: model setup failed — %@", message)
+            onStatusChange?("model download failed")
+            popup.show(.error("Speech model download failed — \(message)"))
+            popup.autoHide(after: 6)
+            downloadPopupVisible = false
+        }
+    }
+
+    private func reportDownloadProgress(_ fraction: Double) {
+        // The very first callback is what tells us a download is actually
+        // happening (an already-installed model reports nothing at all), so
+        // it's what raises the HUD.
+        if !downloadStarted {
+            downloadStarted = true
+            setupProgress = fraction
+            onStatusChange?("downloading speech model…")
+            showDownloadPopup()
+            return
+        }
+
+        // Afterwards the callback fires per chunk; only act on whole-percent
+        // changes so we aren't rebuilding the menu title thousands of times.
+        let percent = Int(fraction * 100)
+        guard percent != Int(setupProgress * 100) else { return }
+        setupProgress = fraction
+        onStatusChange?("downloading speech model… \(percent)%")
+        if downloadPopupVisible {
+            popup.show(.downloadingModel(fraction: fraction))
+        }
+    }
+
+    /// Puts the progress HUD on screen for a few seconds. Called at the start
+    /// of the download, and again if the user taps the hotkey while it runs.
+    private func showDownloadPopup() {
+        downloadPopupVisible = true
+        popup.show(.downloadingModel(fraction: setupProgress))
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard let self = self, self.downloadPopupVisible else { return }
+            self.downloadPopupVisible = false
+            self.popup.hide()
+        }
     }
 
     func toggle() {
+        // Tapping the hotkey before setup finishes should explain itself
+        // rather than silently doing nothing.
+        guard modelReady else {
+            if let failure = setupFailure {
+                popup.show(.error(failure))
+                popup.autoHide(after: 4)
+            } else {
+                showDownloadPopup()
+            }
+            return
+        }
+
         switch state {
         case .idle: beginRecording()
         case .recording: finishRecording()

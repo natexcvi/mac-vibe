@@ -30,5 +30,21 @@
     <string>MacVibe listens to your voice to transcribe dictation into text wherever you&#8217;re typing.</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>MacVibe pastes transcribed text into the focused application.</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>MIT licensed. See LICENSE.</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.productivity</string>
+
+    <!-- Sparkle auto-update. The appcast is published as an asset on the
+         latest GitHub release; SUPublicEDKey pins the EdDSA key that updates
+         must be signed with, so a hijacked feed can't ship a payload. -->
+    <key>SUFeedURL</key>
+    <string>https://github.com/natexcvi/mac-vibe/releases/latest/download/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>sg3DNVbCwsdXmjMrhKZo1kAMfxNjLWYCgbatP2CgmRc=</string>
+    <!-- Daily. Sparkle asks the user once, on first launch, before it starts
+         checking at all. -->
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
 </dict>
 </plist>
