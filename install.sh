@@ -48,5 +48,8 @@ echo "    install as a new app. You'll need to re-grant Accessibility +"
 echo "    Microphone in System Settings → Privacy & Security after upgrading."
 echo "  • Remove any older MacVibe entries from those lists first to avoid"
 echo "    confusion with stale signatures."
+echo "  • Set SIGN_IDENTITY to a Developer ID to get a stable signature that"
+echo "    keeps those permissions across installs — or just use the notarized"
+echo "    .dmg from the Releases page, which also auto-updates."
 echo
 echo "Launch with:  open '${DEST}'"

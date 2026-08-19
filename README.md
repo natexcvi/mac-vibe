@@ -1,71 +1,94 @@
 # MacVibe
 
-Global dictation for macOS. Tap right `⌥`, talk, tap right `⌥` again. The text
-is transcribed with Microsoft VibeVoice-ASR, cleaned up by Apple Intelligence
-(fillers and self-corrections removed), and pasted into the focused field.
+Global dictation for macOS. Tap right `⌥`, talk, tap right `⌥` again — the text
+is transcribed locally and pasted straight into whatever you were typing in.
 
-- Menubar-only app (no Dock icon).
-- Hotkey: *right* Option key, clean tap (press + release with nothing else in
-  between). Holding `⌥` to type special characters is unaffected.
-- Popup: a small floating HUD shows recording → transcribing → refining → done.
-- ASR: `microsoft/VibeVoice-ASR-7B` via a Python sidecar. The JSON bridge is
-  intentionally small so swapping in a Rust / whisper.cpp sidecar is a one-file
-  change.
-- Refinement: `FoundationModels` framework (macOS 26+). On older systems the
-  raw transcription is used.
+- **Menubar-only.** No Dock icon, no window in your way.
+- **Local.** Transcription runs on-device via whisper.cpp with Metal
+  acceleration. Your audio never leaves the machine.
+- **Hotkey.** A clean tap of the *right* Option key — press and release with
+  nothing in between. Holding `⌥` for special characters still works normally.
+- **Optional cleanup.** On macOS 26+ Apple Intelligence strips fillers and
+  self-corrections. Off by default, and entirely on-device.
+- **Auto-updating.** Signed, notarized, and updated in place via Sparkle.
 
-## Requirements
+## Install
 
-- macOS 14+ to build, macOS 26+ to get Apple Intelligence refinement.
-- Xcode command-line tools (`xcode-select --install`).
-- Python 3.11+ and either `uv` or `pip`.
-- Apple Silicon strongly recommended — the sidecar runs VibeVoice on MPS.
+Download the latest `.dmg` from
+[Releases](https://github.com/natexcvi/mac-vibe/releases/latest), drag MacVibe
+to Applications, and launch it.
 
-## Build
+Requirements: **Apple Silicon** Mac running **macOS 14 or later**. (Apple
+Intelligence refinement additionally needs macOS 26+ on a supported Mac.)
 
-```sh
+### First launch
+
+1. MacVibe downloads its speech model — `ggml-large-v3-turbo`, about 1.6 GB —
+   into `~/Library/Application Support/MacVibe/models`. Progress shows in the
+   menubar and a HUD. This happens once; updates don't re-download it.
+2. macOS asks for **Microphone** access — needed to hear you.
+3. macOS asks for **Accessibility** access — needed to watch for the right `⌥`
+   tap globally and to synthesise ⌘V.
+
+If the paste step fails, Accessibility isn't granted yet. The transcribed text
+is still on your clipboard either way.
+
+### Updates
+
+MacVibe checks for updates once a day, after asking your permission on first
+launch. You can also trigger a check, or turn automatic checks off, from the
+menubar. Updates are EdDSA-signed and verified against a key baked into the
+app, so a compromised release page can't push code to you.
+
+## Usage
+
+| | |
+| --- | --- |
+| **Right `⌥`** | start / stop dictation |
+| **Language** | pin a language, or leave on Automatic for per-utterance detection |
+| **Custom Words** | names and jargon whisper keeps mishearing — one per line |
+| **Refine with Apple Intelligence** | strip fillers and self-corrections |
+
+When you pin a language but MacVibe acoustically hears a different one, the HUD
+says so — whisper treats a pinned language as a hint, not a constraint, so this
+is otherwise a confusing way to get output in the wrong language.
+
+## Build from source
+
+```bash
+git clone https://github.com/natexcvi/mac-vibe.git
+cd mac-vibe
 ./build.sh
-```
-
-This produces `build/MacVibe.app`.
-
-## Install the Python sidecar
-
-The app bundle ships the sidecar script but not its Python environment (the
-weights and deps are several GB). After building, run:
-
-```sh
-./build/MacVibe.app/Contents/Resources/python-sidecar/setup_venv.sh
-```
-
-This creates a `.venv` alongside `transcribe.py`, installs PyTorch +
-transformers, and attempts to install the official `vibevoice` package from
-GitHub. First run will download the VibeVoice-ASR-7B weights from HuggingFace.
-
-Set `MACVIBE_MODEL` to override the model ID, or `MACVIBE_PYTHON` to point at
-a specific Python interpreter.
-
-## Run
-
-```sh
 open build/MacVibe.app
 ```
 
-On first launch, macOS will prompt for:
+You need the Xcode command-line tools (`xcode-select --install`), a Rust
+toolchain, and CMake (`brew install cmake`) for whisper.cpp.
 
-1. **Microphone access** — required to record your voice.
-2. **Accessibility access** — required to observe the right ⌥ tap globally and
-   to synthesise ⌘V for paste.
+`./build.sh` produces an ad-hoc signed bundle. That's fine for development, but
+the signature changes on every build, so macOS treats each one as a new app and
+asks for Accessibility again. Release builds are signed with a stable Developer
+ID, so permissions survive updates.
 
-If the paste step fails, it means Accessibility isn't granted yet — the text
-is still on your clipboard.
+Useful knobs:
+
+```bash
+VERSION=1.2.3 ./build.sh      # stamp a marketing version
+EMBED_MODEL=1 ./build.sh      # embed weights from RustSidecar/models
+CONFIG=debug ./build.sh       # debug build
+```
+
+To install to `/Applications` with the model embedded (skipping the first-run
+download), use `./install.sh`.
+
+Releasing is documented in [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Architecture
 
 ```
  ┌──────────────┐        ┌─────────────────┐        ┌────────────────┐
- │ HotkeyMonitor│──tap──▶│ DictationCoord. │──wav──▶│ Python sidecar │
- │  (CGEventTap)│        │                 │◀─text──│ (VibeVoice ASR)│
+ │ HotkeyMonitor│──tap──▶│ DictationCoord. │──wav──▶│  ASR sidecar   │
+ │  (CGEventTap)│        │                 │◀─text──│ (whisper.cpp)  │
  └──────────────┘        │                 │        └────────────────┘
                          │                 │
                          │                 │──raw──▶┌────────────────┐
@@ -79,19 +102,14 @@ is still on your clipboard.
                                 └──▶ PopupController (NSPanel + SwiftUI)
 ```
 
-## Swapping the ASR backend
-
-`TranscriptionService.swift` speaks line-delimited JSON over stdin/stdout.
-Any process that implements the same protocol works:
+The sidecar is a separate process speaking line-delimited JSON over
+stdin/stdout, so the ASR backend can be swapped without touching the app:
 
 ```
--> {"cmd":"transcribe","id":"<uuid>","audio_path":"/tmp/x.wav"}
+-> {"cmd":"transcribe","id":"<uuid>","audio_path":"/tmp/x.wav","language":"auto"}
 <- {"type":"status","state":"ready"}
-<- {"type":"transcription","id":"<uuid>","text":"hello world"}
+<- {"type":"transcription","id":"<uuid>","text":"hello world","detected_language":"en"}
 ```
-
-For a Rust alternative, `whisper-rs` on top of whisper.cpp gives you a single
-binary with Metal acceleration and no Python environment.
 
 ## Layout
 
@@ -99,32 +117,35 @@ binary with Metal acceleration and no Python environment.
 mac-vibe/
 ├── Package.swift
 ├── Sources/MacVibe/
-│   ├── MacVibeApp.swift          # @main + menubar + delegate
+│   ├── MacVibeApp.swift           # @main + menubar + delegate
 │   ├── DictationCoordinator.swift # State machine: idle → rec → proc
-│   ├── HotkeyMonitor.swift       # CGEventTap on right ⌥
-│   ├── AudioRecorder.swift       # AVAudioEngine → 16 kHz mono WAV
+│   ├── HotkeyMonitor.swift        # CGEventTap on right ⌥
+│   ├── AudioRecorder.swift        # AVAudioEngine → 16 kHz mono WAV
 │   ├── TranscriptionService.swift # JSON bridge to the sidecar
-│   ├── RefinementService.swift   # FoundationModels streaming refine
-│   ├── PopupController.swift     # NSPanel lifecycle
-│   └── PopupView.swift           # SwiftUI HUD
-├── PythonSidecar/
-│   ├── transcribe.py
-│   ├── requirements.txt
-│   └── setup_venv.sh
-├── Resources/
-│   ├── Info.plist
-│   └── MacVibe.entitlements
+│   ├── RefinementService.swift    # FoundationModels streaming refine
+│   ├── ModelManager.swift         # First-launch weights download
+│   ├── UpdaterController.swift    # Sparkle
+│   ├── PopupController.swift      # NSPanel lifecycle
+│   └── PopupView.swift            # SwiftUI HUD
+├── RustSidecar/                   # whisper.cpp ASR sidecar
+├── PythonSidecar/                 # retired VibeVoice sidecar, kept for reference
+├── Resources/                     # Info.plist, entitlements, icon
+├── scripts/                       # release + appcast tooling
 ├── build.sh
-└── README.md
+└── docs/RELEASING.md
 ```
 
 ## Troubleshooting
 
 - **Hotkey doesn't fire.** Grant MacVibe Accessibility access in System
   Settings → Privacy & Security → Accessibility, then restart the app.
-- **Status stays "loading model…".** First run downloads ~14 GB; check
-  `stderr` (run from Terminal: `./build/MacVibe.app/Contents/MacOS/MacVibe`).
-- **"Pasted" but nothing appears.** The frontmost app doesn't accept ⌘V.
-  The text is still on your clipboard.
-- **Refinement does nothing.** Apple Intelligence requires macOS 26+ on an
-  Apple-Intelligence-capable Mac, and must be enabled in System Settings.
+- **Stuck on "downloading speech model".** Check your connection; MacVibe
+  retries and resumes automatically. Logs are in `~/Library/Logs/MacVibe.log`.
+- **"Pasted" but nothing appeared.** The frontmost app doesn't accept ⌘V. The
+  text is on your clipboard.
+- **Refinement does nothing.** It needs macOS 26+ on an Apple-Intelligence
+  capable Mac, with Apple Intelligence enabled in System Settings.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

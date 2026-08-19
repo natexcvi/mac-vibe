@@ -13,6 +13,7 @@ struct MacVibeApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var coordinator: DictationCoordinator!
+    private var updater: UpdaterController!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -68,8 +69,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "Open Accessibility Settings…", action: #selector(openAccessibility), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Open Microphone Settings…", action: #selector(openMicrophone), keyEquivalent: "").target = self
         menu.addItem(NSMenuItem.separator())
+        let checkUpdatesItem = NSMenuItem(
+            title: "Check for Updates\u{2026}",
+            action: #selector(checkForUpdates),
+            keyEquivalent: ""
+        )
+        checkUpdatesItem.target = self
+        checkUpdatesItem.tag = 1003
+        menu.addItem(checkUpdatesItem)
+
+        let autoUpdateItem = NSMenuItem(
+            title: "Update Automatically",
+            action: #selector(toggleAutomaticUpdates),
+            keyEquivalent: ""
+        )
+        autoUpdateItem.target = self
+        autoUpdateItem.tag = 1004
+        menu.addItem(autoUpdateItem)
+
+        menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Quit MacVibe", action: #selector(NSApp.terminate(_:)), keyEquivalent: "q")
         statusItem.menu = menu
+
+        updater = UpdaterController()
+        autoUpdateItem.state = updater.automaticallyChecksForUpdates ? .on : .off
+        updater.onUpdatePending = { [weak self] pending in
+            self?.setUpdateBadge(pending)
+        }
 
         coordinator = DictationCoordinator()
         // Reflect persisted refinement preference in the menu.
@@ -126,6 +152,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    @MainActor @objc private func checkForUpdates() {
+        updater.checkForUpdates()
+    }
+
+    @MainActor @objc private func toggleAutomaticUpdates(_ sender: NSMenuItem) {
+        updater.automaticallyChecksForUpdates.toggle()
+        sender.state = updater.automaticallyChecksForUpdates ? .on : .off
+    }
+
+    /// Menubar cue for an update found by a background check. `.accessory`
+    /// apps have no Dock icon to badge, so we mark the status item itself and
+    /// relabel the menu entry.
+    @MainActor private func setUpdateBadge(_ pending: Bool) {
+        statusItem.button?.title = pending ? " \u{25CF}" : ""
+        statusItem.button?.imagePosition = pending ? .imageLeading : .imageOnly
+        statusItem.menu?.item(withTag: 1003)?.title =
+            pending ? "Install Update\u{2026}" : "Check for Updates\u{2026}"
+    }
+
     @objc private func openAccessibility() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
@@ -148,6 +193,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             freopen(path, "a", stderr)
         }
         setvbuf(stderr, nil, _IONBF, 0)
-        NSLog("MacVibe %@ starting (pid %d)", "0.1.0", getpid())
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
+        NSLog("MacVibe %@ (%@) starting (pid %d)", version, build, getpid())
     }
 }

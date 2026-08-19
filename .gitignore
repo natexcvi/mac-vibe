@@ -1,12 +1,10 @@
 .build/
 .swiftpm/
 build/
-Package.resolved
 
 # Rust sidecar build artifacts + downloaded weights (~1.6 GB).
 RustSidecar/target/
 RustSidecar/models/
-RustSidecar/Cargo.lock
 
 # Python sidecar (legacy — kept for reference).
 PythonSidecar/.venv/
@@ -20,3 +18,6 @@ Resources/icon/AppIcon.iconset/
 *.xcworkspace/
 .DS_Store
 /tmp/
+
+# Release artifacts.
+dist/

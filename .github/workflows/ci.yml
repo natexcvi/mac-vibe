@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            RustSidecar/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('RustSidecar/Cargo.toml') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      # Ad-hoc signed: verifies the bundle assembles and the Sparkle framework
+      # embeds correctly without needing the Developer ID secrets.
+      - name: Build
+        run: ./build.sh
+
+      - name: Check bundle layout
+        run: |
+          set -euo pipefail
+          APP=build/MacVibe.app
+          for entry in \
+            "Contents/MacOS/MacVibe" \
+            "Contents/MacOS/macvibe-asr" \
+            "Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle" \
+            "Contents/Resources/AppIcon.icns"; do
+            test -e "${APP}/${entry}" || { echo "✗ missing ${entry}"; exit 1; }
+            echo "✓ ${entry}"
+          done
+          codesign --verify --strict "${APP}"
+          # A release build must NOT carry the 1.6 GB model.
+          if [ -d "${APP}/Contents/Resources/asr-sidecar/models" ]; then
+            echo "✗ model embedded in a default build"; exit 1
+          fi
+          echo "✓ no embedded model"

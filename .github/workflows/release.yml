@@ -1,0 +1,124 @@
+name: Release
+
+# Tagging v1.2.3 builds, signs, notarizes and publishes the release.
+# See docs/RELEASING.md for the one-time secret setup.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build (e.g. v1.2.3)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # arm64 runner: the sidecar links whisper.cpp with Metal, and the app is
+    # Apple-Silicon only.
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          # build.sh derives CFBundleVersion from the commit count, which needs
+          # the full history.
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: version
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "tag=${TAG}"           >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}"     >> "$GITHUB_OUTPUT"
+
+      - name: Ensure Rust toolchain
+        run: |
+          if ! command -v cargo >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            RustSidecar/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('RustSidecar/Cargo.toml') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      - name: Import Developer ID certificate
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          # A throwaway keychain scoped to this job; the password never leaves
+          # the runner and the keychain is deleted in the final step.
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
+          echo "::add-mask::${KEYCHAIN_PASSWORD}"
+          security create-keychain -p "${KEYCHAIN_PASSWORD}" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "${KEYCHAIN_PASSWORD}" build.keychain
+          # Without a timeout bump the keychain relocks mid-notarization.
+          security set-keychain-settings -lut 3600 build.keychain
+
+          echo "${MACOS_CERTIFICATE}" | base64 --decode > /tmp/certificate.p12
+          security import /tmp/certificate.p12 -k build.keychain \
+            -P "${MACOS_CERTIFICATE_PASSWORD}" -T /usr/bin/codesign
+          rm -f /tmp/certificate.p12
+
+          # Lets codesign use the private key without an interactive prompt.
+          security set-key-partition-list -S apple-tool:,apple: \
+            -s -k "${KEYCHAIN_PASSWORD}" build.keychain >/dev/null
+
+          security find-identity -v -p codesigning build.keychain
+
+      - name: Write notarization + Sparkle keys
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          umask 077
+          mkdir -p "${RUNNER_TEMP}/keys"
+          printf '%s' "${APPLE_API_KEY_P8}"     > "${RUNNER_TEMP}/keys/AuthKey.p8"
+          printf '%s' "${SPARKLE_PRIVATE_KEY}"  > "${RUNNER_TEMP}/keys/sparkle_key"
+
+      - name: Build, sign, notarize, package
+        env:
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          # Carry the previous release's entries into the new feed.
+          PREVIOUS_APPCAST: https://github.com/${{ github.repository }}/releases/latest/download/appcast.xml
+        run: |
+          export APPLE_API_KEY_PATH="${RUNNER_TEMP}/keys/AuthKey.p8"
+          export SPARKLE_KEY_PATH="${RUNNER_TEMP}/keys/sparkle_key"
+          ./scripts/release.sh
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          # --clobber so re-running a failed release replaces assets rather
+          # than erroring on the ones that already uploaded.
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" dist/* --clobber
+          else
+            gh release create "${TAG}" dist/* \
+              --title "MacVibe ${{ steps.version.outputs.version }}" \
+              --generate-notes
+          fi
+
+      - name: Clean up keys
+        if: always()
+        run: |
+          rm -rf "${RUNNER_TEMP}/keys"
+          security delete-keychain build.keychain 2>/dev/null || true

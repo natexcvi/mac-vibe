@@ -46,19 +46,24 @@ final class TranscriptionService: @unchecked Sendable {
     private var isReady = false
     private var readyWaiters: [CheckedContinuation<Void, Error>] = []
 
-    func launch() {
-        queue.async { [weak self] in self?.launchInternal() }
+    /// `modelPath` is resolved by `ModelManager` (bundled copy, or the one
+    /// downloaded on first launch) and handed to the sidecar explicitly rather
+    /// than left to its own filesystem search.
+    func launch(modelPath: URL) {
+        queue.async { [weak self] in self?.launchInternal(modelPath: modelPath) }
     }
 
-    private func launchInternal() {
+    private func launchInternal(modelPath: URL) {
         guard process == nil else { return }
 
-        // Bundled at <App>/Contents/Resources/asr-sidecar/macvibe-asr.
-        // For dev runs against the source tree, fall back to the cargo build
-        // directory.
+        // Bundled at <App>/Contents/MacOS/macvibe-asr — helper executables
+        // must live under Contents/MacOS to satisfy code-signing and
+        // notarization. For dev runs against the source tree, fall back to the
+        // cargo build directory.
         let sidecarBin: URL = {
-            if let bundled = Bundle.main.resourceURL?
-                .appendingPathComponent("asr-sidecar/macvibe-asr"),
+            if let bundled = Bundle.main.executableURL?
+                .deletingLastPathComponent()
+                .appendingPathComponent("macvibe-asr"),
                FileManager.default.isExecutableFile(atPath: bundled.path) {
                 return bundled
             }
@@ -76,9 +81,9 @@ final class TranscriptionService: @unchecked Sendable {
         let proc = Process()
         proc.executableURL = sidecarBin
         proc.arguments = []
-        proc.currentDirectoryURL = sidecarBin.deletingLastPathComponent()
 
         var env = ProcessInfo.processInfo.environment
+        env["MACVIBE_MODEL_PATH"] = modelPath.path
         // GGML_METAL_PATH_RESOURCES helps whisper.cpp locate Metal shaders if
         // it's bundled in a non-default layout.
         if let resources = Bundle.main.resourceURL {
