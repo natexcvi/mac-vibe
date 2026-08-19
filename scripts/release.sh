@@ -55,6 +55,9 @@ fi
 
 sparkle_key_args=()
 [[ -n "${SPARKLE_KEY_PATH:-}" ]] && sparkle_key_args=(--ed-key-file "${SPARKLE_KEY_PATH}")
+# macOS ships bash 3.2, where expanding an empty array under `set -u` is an
+# error rather than nothing. Locally the array *is* empty — the key comes from
+# the keychain — so every use needs the ${a[@]+…} guard.
 
 # ── build ─────────────────────────────────────────────────────────────────
 SIGN_IDENTITY="${SIGN_IDENTITY}" ./build.sh
@@ -103,7 +106,7 @@ xcrun stapler staple "${DMG}"
 # Sparkle verifies this signature against SUPublicEDKey in Info.plist, so a
 # compromised release page still can't push a payload users will install.
 echo "▸ signing update + writing appcast"
-SIGNATURE_LINE="$("${SPARKLE_BIN}/sign_update" "${sparkle_key_args[@]}" "${ZIP}")"
+SIGNATURE_LINE="$("${SPARKLE_BIN}/sign_update" ${sparkle_key_args[@]+"${sparkle_key_args[@]}"} "${ZIP}")"
 
 RELEASE_TAG="${RELEASE_TAG:-v${VERSION}}"
 DOWNLOAD_URL="https://github.com/natexcvi/mac-vibe/releases/download/${RELEASE_TAG}/$(basename "${ZIP}")"
