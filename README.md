@@ -1,150 +1,102 @@
-# MacVibe
+<p align="center">
+  <img src="Resources/icon/AppIcon-preview.png" alt="" width="128" height="128">
+</p>
 
-Global dictation for macOS. Tap right `⌥`, talk, tap right `⌥` again — the text
-is transcribed locally and pasted straight into whatever you were typing in.
+<h1 align="center">MacVibe</h1>
 
-- **Menubar-only.** No Dock icon, no window in your way.
-- **Local.** Transcription runs on-device via whisper.cpp with Metal
-  acceleration. Your audio never leaves the machine.
-- **Hotkey.** A clean tap of the *right* Option key — press and release with
-  nothing in between. Holding `⌥` for special characters still works normally.
-- **Optional cleanup.** On macOS 26+ Apple Intelligence strips fillers and
-  self-corrections. Off by default, and entirely on-device.
-- **Auto-updating.** Signed, notarized, and updated in place via Sparkle.
+<p align="center">
+  Global dictation for macOS. Tap right <kbd>⌥</kbd>, talk, tap again —<br>
+  your words land wherever you were already typing.
+</p>
+
+<p align="center">
+  <a href="https://github.com/natexcvi/mac-vibe/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/natexcvi/mac-vibe?color=5b4bc4"></a>
+  <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-5b4bc4">
+  <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-5b4bc4"></a>
+</p>
+
+---
+
+Everything runs on your Mac — audio never leaves the machine. MacVibe lives in
+the menubar, has no Dock icon, and stays out of the way until you tap for it.
 
 ## Install
 
-Download the latest `.dmg` from
-[Releases](https://github.com/natexcvi/mac-vibe/releases/latest), drag MacVibe
-to Applications, and launch it.
+**[Download the latest .dmg](https://github.com/natexcvi/mac-vibe/releases/latest)**,
+drag MacVibe to Applications, and launch it. It's signed and notarized, so
+Gatekeeper won't complain. Updates install themselves.
 
-Requirements: **Apple Silicon** Mac running **macOS 14 or later**. (Apple
-Intelligence refinement additionally needs macOS 26+ on a supported Mac.)
+Requires an **Apple Silicon** Mac on **macOS 14+**.
 
-### First launch
+On first launch MacVibe downloads its speech model (~1.6 GB, once — updates
+don't re-download it) and asks for two permissions:
 
-1. MacVibe downloads its speech model — `ggml-large-v3-turbo`, about 1.6 GB —
-   into `~/Library/Application Support/MacVibe/models`. Progress shows in the
-   menubar and a HUD. This happens once; updates don't re-download it.
-2. macOS asks for **Microphone** access — needed to hear you.
-3. macOS asks for **Accessibility** access — needed to watch for the right `⌥`
-   tap globally and to synthesise ⌘V.
+- **Microphone** — to hear you.
+- **Accessibility** — to catch the right <kbd>⌥</kbd> tap globally and paste.
 
-If the paste step fails, Accessibility isn't granted yet. The transcribed text
-is still on your clipboard either way.
+If pasting ever fails, Accessibility isn't granted. Your text is on the
+clipboard regardless.
 
-### Updates
-
-MacVibe checks for updates once a day, after asking your permission on first
-launch. You can also trigger a check, or turn automatic checks off, from the
-menubar. Updates are EdDSA-signed and verified against a key baked into the
-app, so a compromised release page can't push code to you.
-
-## Usage
+## Using it
 
 | | |
 | --- | --- |
-| **Right `⌥`** | start / stop dictation |
-| **Language** | pin a language, or leave on Automatic for per-utterance detection |
-| **Custom Words** | names and jargon whisper keeps mishearing — one per line |
-| **Refine with Apple Intelligence** | strip fillers and self-corrections |
+| **Right <kbd>⌥</kbd>** | Start and stop dictation. A clean tap — holding <kbd>⌥</kbd> for special characters still works. |
+| **Language** | Pin one, or leave on Automatic to detect per utterance. |
+| **Custom Words** | Names and jargon Whisper keeps mishearing, one per line. |
+| **Refine with Apple Intelligence** | Strips fillers and self-corrections. Needs macOS 26+; off by default. |
 
-When you pin a language but MacVibe acoustically hears a different one, the HUD
-says so — whisper treats a pinned language as a hint, not a constraint, so this
-is otherwise a confusing way to get output in the wrong language.
+A pinned language is a *hint* to Whisper, not a constraint — so when MacVibe
+hears something else, it says so rather than silently handing you the wrong
+language.
 
-## Build from source
-
-```bash
-git clone https://github.com/natexcvi/mac-vibe.git
-cd mac-vibe
-./build.sh
-open build/MacVibe.app
-```
-
-You need the Xcode command-line tools (`xcode-select --install`), a Rust
-toolchain, and CMake (`brew install cmake`) for whisper.cpp.
-
-`./build.sh` produces an ad-hoc signed bundle. That's fine for development, but
-the signature changes on every build, so macOS treats each one as a new app and
-asks for Accessibility again. Release builds are signed with a stable Developer
-ID, so permissions survive updates.
-
-Useful knobs:
-
-```bash
-VERSION=1.2.3 ./build.sh      # stamp a marketing version
-EMBED_MODEL=1 ./build.sh      # embed weights from RustSidecar/models
-CONFIG=debug ./build.sh       # debug build
-```
-
-To install to `/Applications` with the model embedded (skipping the first-run
-download), use `./install.sh`.
-
-Releasing is documented in [docs/RELEASING.md](docs/RELEASING.md).
-
-## Architecture
+## How it works
 
 ```
  ┌──────────────┐        ┌─────────────────┐        ┌────────────────┐
  │ HotkeyMonitor│──tap──▶│ DictationCoord. │──wav──▶│  ASR sidecar   │
  │  (CGEventTap)│        │                 │◀─text──│ (whisper.cpp)  │
  └──────────────┘        │                 │        └────────────────┘
-                         │                 │
                          │                 │──raw──▶┌────────────────┐
                          │                 │        │ RefinementSvc  │
                          │                 │◀final──│ (FoundationMdl)│
                          │                 │        └────────────────┘
-                         │                 │
                          │                 │──⌘V──▶ focused app
                          └─────────────────┘
-                                │
-                                └──▶ PopupController (NSPanel + SwiftUI)
 ```
 
-The sidecar is a separate process speaking line-delimited JSON over
+Transcription runs in a separate process speaking line-delimited JSON over
 stdin/stdout, so the ASR backend can be swapped without touching the app:
 
-```
--> {"cmd":"transcribe","id":"<uuid>","audio_path":"/tmp/x.wav","language":"auto"}
-<- {"type":"status","state":"ready"}
-<- {"type":"transcription","id":"<uuid>","text":"hello world","detected_language":"en"}
+```jsonc
+-> {"cmd":"transcribe","id":"…","audio_path":"/tmp/x.wav","language":"auto"}
+<- {"type":"transcription","id":"…","text":"hello world","detected_language":"en"}
 ```
 
-## Layout
+## Build from source
 
+Needs Xcode command-line tools, Rust, and CMake (`brew install cmake`).
+
+```sh
+git clone https://github.com/natexcvi/mac-vibe.git
+cd mac-vibe && ./build.sh && open build/MacVibe.app
 ```
-mac-vibe/
-├── Package.swift
-├── Sources/MacVibe/
-│   ├── MacVibeApp.swift           # @main + menubar + delegate
-│   ├── DictationCoordinator.swift # State machine: idle → rec → proc
-│   ├── HotkeyMonitor.swift        # CGEventTap on right ⌥
-│   ├── AudioRecorder.swift        # AVAudioEngine → 16 kHz mono WAV
-│   ├── TranscriptionService.swift # JSON bridge to the sidecar
-│   ├── RefinementService.swift    # FoundationModels streaming refine
-│   ├── ModelManager.swift         # First-launch weights download
-│   ├── UpdaterController.swift    # Sparkle
-│   ├── PopupController.swift      # NSPanel lifecycle
-│   └── PopupView.swift            # SwiftUI HUD
-├── RustSidecar/                   # whisper.cpp ASR sidecar
-├── PythonSidecar/                 # retired VibeVoice sidecar, kept for reference
-├── Resources/                     # Info.plist, entitlements, icon
-├── scripts/                       # release + appcast tooling
-├── build.sh
-└── docs/RELEASING.md
-```
+
+`build.sh` signs ad-hoc, which is fine for development — but the signature
+changes every build, so macOS treats each one as a new app and re-asks for
+Accessibility. Set `SIGN_IDENTITY` to a Developer ID for a stable signature.
+Cutting releases is documented in [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Troubleshooting
 
-- **Hotkey doesn't fire.** Grant MacVibe Accessibility access in System
-  Settings → Privacy & Security → Accessibility, then restart the app.
-- **Stuck on "downloading speech model".** Check your connection; MacVibe
-  retries and resumes automatically. Logs are in `~/Library/Logs/MacVibe.log`.
-- **"Pasted" but nothing appeared.** The frontmost app doesn't accept ⌘V. The
-  text is on your clipboard.
-- **Refinement does nothing.** It needs macOS 26+ on an Apple-Intelligence
-  capable Mac, with Apple Intelligence enabled in System Settings.
+Logs live in `~/Library/Logs/MacVibe.log`.
+
+- **Hotkey does nothing** — grant Accessibility in System Settings → Privacy &
+  Security, then restart MacVibe.
+- **Says "Pasted" but nothing appeared** — the focused app doesn't accept ⌘V.
+  The text is on your clipboard.
+- **Refinement does nothing** — needs macOS 26+ on an Apple-Intelligence
+  capable Mac, enabled in System Settings.
 
 ## License
 
